@@ -1,52 +1,64 @@
-import {vec2, vec3} from 'gl-matrix';
-// import * as Stats from 'stats-js';
-// import * as DAT from 'dat-gui';
+import {vec3, vec4} from 'gl-matrix';
+const Stats = require('stats-js');
+import * as DAT from 'dat.gui';
+import Icosphere from './geometry/Icosphere';
 import Square from './geometry/Square';
 import OpenGLRenderer from './rendering/gl/OpenGLRenderer';
 import Camera from './Camera';
 import {setGL} from './globals';
 import ShaderProgram, {Shader} from './rendering/gl/ShaderProgram';
+import Cube from './geometry/Cube';
+import DrawParam from './rendering/gl/DrawParam';
 
 // Define an object with application parameters and button callbacks
 // This will be referred to by dat.GUI's functions that add GUI elements.
 const controls = {
-  tesselations: 5,
+  tesselations: 800,
+  color: [1, 0.7, 0.5],
+  voronoiScale: 64.0,
+  displacement: 0.1,
+  timeScale: 1.0,
   'Load Scene': loadScene, // A function pointer, essentially
 };
 
+let icosphere: Icosphere;
 let square: Square;
-let time: number = 0;
+let prevTesselations: number = 5;
+let cube : Cube;
 
 function loadScene() {
-  square = new Square(vec3.fromValues(0, 0, 0));
+  square = new Square(vec3.fromValues(0, 0, 0), controls.tesselations);
+  square.scale = vec3.fromValues(4, 4, 4);
+  square.position = vec3.fromValues(0, -1, 0);
   square.create();
-  // time = 0;
+
+  cube = new Cube(vec3.fromValues(0, 0, 0));
+  cube.scale = vec3.fromValues(0.2, 0.2, 0.2);
+  cube.rotation = vec3.fromValues(45, 45, 45);
+  cube.create();
+}
+
+function getGUIColor() {
+  return vec4.fromValues(controls.color[0] / 255.0, controls.color[1] / 255.0, controls.color[2] / 255.0, 1.0);
 }
 
 function main() {
-  window.addEventListener('keypress', function (e) {
-    // console.log(e.key);
-    switch(e.key) {
-      // Use this if you wish
-    }
-  }, false);
-
-  window.addEventListener('keyup', function (e) {
-    switch(e.key) {
-      // Use this if you wish
-    }
-  }, false);
-
   // Initial display for framerate
-  // const stats = Stats();
-  // stats.setMode(0);
-  // stats.domElement.style.position = 'absolute';
-  // stats.domElement.style.left = '0px';
-  // stats.domElement.style.top = '0px';
-  // document.body.appendChild(stats.domElement);
+  const stats = Stats();
+  stats.setMode(0);
+  stats.domElement.style.position = 'absolute';
+  stats.domElement.style.left = '0px';
+  stats.domElement.style.top = '0px';
+  document.body.appendChild(stats.domElement);
 
   // Add controls to the gui
-  // const gui = new DAT.GUI();
+  const gui = new DAT.GUI();
+  gui.add(controls, 'tesselations', 0, 1600).step(1);
+  gui.addColor(controls, 'color').setValue([255, 255, 255]);
+  gui.add(controls, 'voronoiScale', 0.01, 100.0);
+  gui.add(controls, 'displacement', 0, 1);
+  gui.add(controls, 'timeScale', 0.0, 10.0);
+  gui.add(controls, 'Load Scene');
 
   // get canvas and webgl context
   const canvas = <HTMLCanvasElement> document.getElementById('canvas');
@@ -61,33 +73,46 @@ function main() {
   // Initial call to load scene
   loadScene();
 
-  const camera = new Camera(vec3.fromValues(0, 0, -10), vec3.fromValues(0, 0, 0));
+  const camera = new Camera(vec3.fromValues(0, 0, 5), vec3.fromValues(0, 0, 0));
 
   const renderer = new OpenGLRenderer(canvas);
-  renderer.setClearColor(164.0 / 255.0, 233.0 / 255.0, 1.0, 1);
+  renderer.setClearColor(0.2, 0.2, 0.2, 1);
   gl.enable(gl.DEPTH_TEST);
 
-  const flat = new ShaderProgram([
-    new Shader(gl.VERTEX_SHADER, require('./shaders/flat-vert.glsl')),
-    new Shader(gl.FRAGMENT_SHADER, require('./shaders/flat-frag.glsl')),
+  const customShader = new ShaderProgram([
+    new Shader(gl.VERTEX_SHADER, require('./shaders/custom-vert.glsl')),
+    new Shader(gl.FRAGMENT_SHADER, require('./shaders/custom-frag.glsl')),
   ]);
-
-  function processKeyPresses() {
-    // Use this if you wish
-  }
 
   // This function will be called every frame
   function tick() {
     camera.update();
-    // stats.begin();
+    stats.begin();
+
     gl.viewport(0, 0, window.innerWidth, window.innerHeight);
+
     renderer.clear();
-    processKeyPresses();
-    renderer.render(camera, flat, [
+
+    if(controls.tesselations != prevTesselations) {
+      prevTesselations = controls.tesselations;
+      loadScene();
+    }
+
+    let param = new DrawParam();
+    param.color = getGUIColor();
+    param.noiseScale = controls.voronoiScale;
+    param.displacement = controls.displacement;
+    param.timeScale = controls.timeScale;
+
+    let rotation = 0.4;
+    vec3.add(cube.rotation, cube.rotation, vec3.fromValues(rotation, rotation, rotation));
+
+    renderer.render(camera, customShader, param, [
+      //icosphere,
       square,
-    ], time);
-    time++;
-    // stats.end();
+      cube,
+    ]);
+    stats.end();
 
     // Tell the browser to call `tick` again whenever it renders a new frame
     requestAnimationFrame(tick);
@@ -97,13 +122,11 @@ function main() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     camera.setAspectRatio(window.innerWidth / window.innerHeight);
     camera.updateProjectionMatrix();
-    flat.setDimensions(window.innerWidth, window.innerHeight);
   }, false);
 
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.setAspectRatio(window.innerWidth / window.innerHeight);
   camera.updateProjectionMatrix();
-  flat.setDimensions(window.innerWidth, window.innerHeight);
 
   // Start the render loop
   tick();
