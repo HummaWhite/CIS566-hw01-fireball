@@ -22,8 +22,15 @@ uniform mat4 u_ViewProj;    // The matrix that defines the camera's transformati
 uniform mat4 u_ModelView;
 
 uniform highp float u_Time;
-uniform highp float u_VoronoiScale;
 uniform highp float u_Displacement;
+uniform highp float u_FBMAmplitude;
+uniform highp float u_FBMFrequency;
+uniform highp float u_FBMAmplitudeMultiplier;
+uniform highp float u_FBMFrequencyMultiplier;
+uniform highp float u_Layer;
+uniform highp float u_SineIntensity;
+uniform highp float u_Blend1;
+uniform highp float u_Blend2;
 
 in vec4 vs_Pos;             // The array of vertex positions passed to the shader
 in vec4 vs_Nor;             // The array of vertex normals passed to the shader
@@ -33,8 +40,7 @@ in vec2 vs_Uv;
 out vec3 fs_Nor;            // The array of normals that has been transformed by u_ModelInvTr. This is implicitly passed to the fragment shader.
 out vec3 fs_Pos;
 out vec3 fs_Col;            // The color of each vertex. This is implicitly passed to the fragment shader.
-out vec2 fs_Uv;
-out vec3 fs_ViewPos;
+out vec3 fs_OrigPos;
 
 const float Pi = 3.1415926535897932;
 const float PiInv = 1.0 / Pi;
@@ -57,57 +63,90 @@ uint hash(uint seed) {
     return seed;
 }
 
-float rand(inout uint seed) {
+float rand(uint seed) {
     seed = hash(seed);
     return float(seed) * (1.0 / 4294967296.0);
 }
 
-vec2 floatMod(vec2 v, vec2 m) {
-    return fract((v + m * 10.0) / m) * m;
+float noise1(float x) {
+    uint seed = floatBitsToUint(x);
+    uint seed1 = floatBitsToUint(rand(seed));
+    return rand(seed1);
 }
 
-float VoronoiNoise(vec2 uv, vec2 scale, float time) {
-    uv = uv * scale + time;
+float noise2(vec2 p) {
+    uint seed = floatBitsToUint(p.x) * floatBitsToUint(p.y);
+    return rand(seed);
+}
 
-    float minDist = 2.;
-    vec2 base = floor(uv);
-    vec2 closest;
+float noise3(vec3 p) {
+    uint seed = floatBitsToUint(p.x);
+    seed = floatBitsToUint(rand(seed)) ^ floatBitsToUint(p.y);
+    seed = floatBitsToUint(rand(seed)) ^ floatBitsToUint(p.z);
+    return rand(seed);
+}
 
-    for (int i = -1; i <= 1; i++) {
-        for (int j = -1; j <= 1; j++) {
-            vec2 cell = base + vec2(i, j);
-            vec2 modCell = floatMod(cell, scale);
-            uint seed = floatBitsToUint((modCell.x + 1.0) * (modCell.y + 1.0));
-            vec2 cellPos = cell + vec2(rand(seed), rand(seed));
+float noise3Interpl(vec3 p) {
+    vec3 pi = floor(p);
+    vec3 pf = fract(p);
 
-            if (length(cellPos - uv) < minDist) {
-                minDist = length(cellPos - uv);
-                closest = cell;
-            }
-        }
+    return mix(
+        mix(
+            mix(noise3(pi + vec3(0, 0, 0)), noise3(pi + vec3(1, 0, 0)), pf.x),
+            mix(noise3(pi + vec3(0, 1, 0)), noise3(pi + vec3(1, 1, 0)), pf.x),
+            pf.y
+        ),
+        mix(
+            mix(noise3(pi + vec3(0, 0, 1)), noise3(pi + vec3(1, 0, 1)), pf.x),
+            mix(noise3(pi + vec3(0, 1, 1)), noise3(pi + vec3(1, 1, 1)), pf.x),
+            pf.y
+        ),
+        pf.z
+    );
+}
+
+float sawtooth(float x) {
+    return fract(x);
+}
+
+float triangle(float x) {
+    return abs(fract(x) - 0.5) + 0.5;
+}
+
+float FBM3(vec3 p) {
+    const int Octaves = 5;
+
+    float val = 0.0;
+    float amp = u_FBMAmplitude;
+    float freq = u_FBMFrequency * 0.25;
+
+    for (int i = 0; i < Octaves; i++) {
+        val += amp * noise3Interpl(p * freq);
+        freq *= 2.0;
+        amp *= u_FBMAmplitudeMultiplier;
     }
-    uint seed = floatBitsToUint((closest.x + 1.0) * (closest.y + 1.0));
-    //return minDist * rand(seed);
-    return mix(0.1, 1.0, 1.0 - pow(minDist, 1.1));
-    //return rand(seed);
+    return val;
 }
 
-vec3 displacement(vec3 n, vec2 uv, float time) {
-    vec2 uv2 = sphereToPlane(normalize(vec3(uv * 2.0 - 1.0, 1.0)));
-    float r = length(uv - 0.5);
-    float r2 = abs(r) - 0.5;
-    vec3 noiseDisplacement = n * VoronoiNoise(uv2, vec2(u_VoronoiScale), time) * u_Displacement;
-    vec3 shapeDisplacement = n * pow(r2, 3.0) * 4.0;
-    return noiseDisplacement + shapeDisplacement;
+float displacement(vec3 n, vec2 uv, float time) {
+    float r = 1.0 - uv.y;
+    float shape = r * r - 1.0;
+    float circum = FBM3(vec3(triangle(uv.x + time * 0.2), 0, 0));
+    float layer = sawtooth((r + circum + uv.x) * 10.0) * -u_Layer;
+    float sin1 = mix(-0.5, 0.3, sin(time) * 0.5 + 0.5) * u_SineIntensity + FBM3(vec3(time)) * u_Displacement;
+    float sin2 = mix(-0.5, 0.3, sin(time) * 0.5 + 0.5) * u_SineIntensity;
+    float sin3 = mix(-0.5, 0.3, smoothstep(-0.5, 0.3, sin(time))) * u_SineIntensity;
+    return FBM3(n + vec3(0.1, -1, 0) * time) * u_Displacement + shape + layer + mix(mix(sin1, sin2, u_Blend1), sin3, u_Blend2);
 }
 
 void main()
 {
     fs_Col = vs_Col.xyz;                         // Pass the vertex colors to the fragment shader for interpolation
-    fs_Uv = vs_Uv;
+    
+    vec2 uv = sphereToPlane(normalize(vs_Pos.xzy));
 
     //vec2 uv = sphereToPlane(normalize(vec3(vs_Uv * 2.0 - 1.0, 1.0)));
-    vec3 pos = vs_Pos.xyz + displacement(vs_Nor.xyz, vs_Uv, u_Time);
+    vec3 pos = vs_Pos.xyz + vs_Nor.xyz * displacement(vs_Nor.xyz, uv, u_Time);
 
     mat3 invTranspose = mat3(u_ModelInvTr);
     fs_Nor = normalize(invTranspose * vec3(vs_Nor));          // Pass the vertex normals to the fragment shader for interpolation.
@@ -115,7 +154,7 @@ void main()
                                                             // model matrix. This is necessary to ensure the normals remain
                                                             // perpendicular to the surface after the surface is transformed by
                                                             // the model matrix.
-    fs_ViewPos = vec3(u_ModelView * vec4(pos, 1.0));
+    fs_OrigPos = pos.xyz;
     vec4 trPos = u_Model * vec4(pos, 1.0);   // Temporarily store the transformed vertex positions for use below
     fs_Pos = trPos.xyz;
 

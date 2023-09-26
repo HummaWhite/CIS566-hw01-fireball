@@ -35,12 +35,7 @@ class OpenGLRenderer {
     mat4.multiply(viewProj, camera.projectionMatrix, camera.viewMatrix);
 
     prog.setUniformMatrix4x4("u_ViewProj", viewProj);
-    prog.setUniformFloat4("u_Color", param.color);
-    prog.setUniformFloat1("u_VoronoiScale", param.noiseScale);
     prog.setUniformFloat1("u_Time", time);
-    prog.setUniformFloat1("u_Displacement", param.displacement);
-
-    //gl.uniform1fv(gl.getUniformLocation(prog.prog, "u_FragmentTime"), [0.3]);
 
     for (let drawable of drawables) {
       let model = drawable.getTransform();

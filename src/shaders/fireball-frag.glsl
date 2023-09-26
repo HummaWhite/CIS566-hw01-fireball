@@ -11,17 +11,20 @@
 // position, light position, and vertex color.
 precision highp float;
 
-uniform vec4 u_Color; // The color with which to render this instance of geometry.
-uniform float u_Time; // Current time
-uniform float u_VoronoiScale;
+uniform vec3 u_Color1;
+uniform vec3 u_Color2;
+uniform float u_Time;
+uniform float u_FBMAmplitude;
+uniform float u_FBMFrequency;
+uniform float u_FBMAmplitudeMultiplier;
+uniform float u_FBMFrequencyMultiplier;
 
 // These are the interpolated values out of the rasterizer, so you can't know
 // their specific values without knowing the vertices that contributed to them
 in vec3 fs_Nor;
 in vec3 fs_Pos;
 in vec3 fs_Col;
-in vec2 fs_Uv;
-in vec3 fs_ViewPos;
+in vec3 fs_OrigPos;
 
 out vec4 out_Col; // This is the final output color that you will see on your
                   // screen for the pixel that is currently being processed.
@@ -82,70 +85,43 @@ uint hash(uint seed) {
     return seed;
 }
 
-float rand(inout uint seed) {
+float rand(uint seed) {
     seed = hash(seed);
     return float(seed) * (1.0 / 4294967296.0);
 }
 
-vec2 floatMod(vec2 v, vec2 m) {
-    return fract((v + m * 10.0) / m) * m;
+float noise1(float x) {
+    uint seed = floatBitsToUint(x);
+    uint seed1 = floatBitsToUint(rand(seed));
+    return rand(seed1);
 }
 
-float VoronoiNoise(vec2 uv, vec2 scale, float time) {
-    uv = uv * scale + time;
-
-    float minDist = 2.;
-    vec2 base = floor(uv);
-    vec2 closest;
-
-    for (int i = -1; i <= 1; i++) {
-        for (int j = -1; j <= 1; j++) {
-            vec2 cell = base + vec2(i, j);
-            vec2 modCell = floatMod(cell, scale);
-            uint seed = floatBitsToUint((modCell.x + 1.0) * (modCell.y + 1.0));
-            vec2 cellPos = cell + vec2(rand(seed), rand(seed));
-
-            if (length(cellPos - uv) < minDist) {
-                minDist = length(cellPos - uv);
-                closest = cell;
-            }
-        }
-    }
-    uint seed = floatBitsToUint((closest.x + 1.0) * (closest.y + 1.0));
-    //return minDist * rand(seed);
-    return mix(0.1, 1.0, 1.0 - pow(minDist, 1.1));
-    //return rand(seed);
+float noise2(vec2 p) {
+    uint seed = floatBitsToUint(p.x) * floatBitsToUint(p.y);
+    return rand(seed);
 }
 
-vec3 lightPosition(float time) {
-    return vec3(5, 5, 3);
-    //return vec3(cos(time), sin(time), 0.6) * 5.0;
+float noise3(vec3 p) {
+    uint seed = floatBitsToUint(p.x);
+    seed = floatBitsToUint(rand(seed)) ^ floatBitsToUint(p.y);
+    seed = floatBitsToUint(rand(seed)) ^ floatBitsToUint(p.z);
+    return rand(seed);
 }
 
 void main()
 {
-    vec2 uv = sphereToPlane(normalize(vec3(fs_Uv * 2.0 - 1.0, 1.0)));
-    //vec2 uv = toConcentricDisk(fs_Uv);
+    vec2 uv = sphereToPlane(normalize(fs_OrigPos));
 
-    // Material base color (before shading)
-    float noise = VoronoiNoise(uv, vec2(u_VoronoiScale), u_Time);
-    vec3 diffuseColor = u_Color.rgb * noise;
+    //float noise = FBM3(fs_Pos + vec3(1, 1, 1) * float(u_Time));
 
-    // Calculate the diffuse term for Lambert shading
+    float r = length(fs_OrigPos);
 
-    vec3 wi = normalize(lightPosition(u_Time) - fs_Pos);
+    vec3 diffuseColor = mix(u_Color1, u_Color2, (r - 1.0));
 
-    vec3 dx = dFdx(fs_ViewPos);
-    vec3 dy = dFdy(fs_ViewPos);
-    vec3 n = normalize(cross(dx, dy));
-
-    float diffuseTerm = max(dot(n, wi), 0.0);
-    // Avoid negative lighting values
-    // diffuseTerm = clamp(diffuseTerm, 0, 1);
 
     float ambientTerm = 0.2;
 
-    diffuseTerm = 1.0;
+    float diffuseTerm = 1.0;
 
     float lightIntensity = diffuseTerm + ambientTerm;   //Add a small float value to the color multiplier
                                                             //to simulate ambient lighting. This ensures that faces that are not
