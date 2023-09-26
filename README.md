@@ -3,7 +3,7 @@
 ![](./fireball.jpg)
 
 - Chang Liu
-- [Live Demo](https://github.com/HummaWhite/CIS566-hw01-fireball/actions/runs/6317324138)
+- [Live Demo](https://hummawhite.github.io/CIS566-hw01-fireball/)
 
 ## Features
 
