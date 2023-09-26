@@ -1,5 +1,19 @@
 # [Project 1: Noise](https://github.com/CIS-566-Fall-2022/hw01-fireball-base)
 
+![](./fireball.jpg)
+
+- Chang Liu
+- [Live Demo]()
+
+## Features
+
+- Vertex displacement using FBM noise
+- Use sine wave, triangle wave, sawtooth wave, smoothstep and FBM to control different behaviors of three fireballs
+- Gradient color shading
+- Animation
+
+![](./demo.gif)
+
 ## Objective
 
 Get comfortable with using WebGL and its shaders to generate an interesting 3D, continuous surface using a multi-octave noise algorithm.
